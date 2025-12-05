@@ -112,6 +112,7 @@ const configSchema = z.object({
 
   // External Services
   PLAYWRIGHT_MICROSERVICE_URL: z.string().optional(),
+  CRAWL4AI_MICROSERVICE_URL: z.string().optional(),
   HTML_TO_MARKDOWN_SERVICE_URL: z.string().default("http://localhost:8080"),
   SMART_SCRAPE_API_URL: z.string().optional(),
 

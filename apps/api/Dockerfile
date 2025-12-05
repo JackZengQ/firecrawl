@@ -39,10 +39,8 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY . .
 
-# Install dependencies
+# Install dependencies (cargo cache disabled to fix flate2 dependency conflict)
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/app/native/target \
     pnpm install --frozen-lockfile
 
 # Build the application

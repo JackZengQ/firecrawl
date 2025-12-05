@@ -14,6 +14,10 @@ import {
   playwrightMaxReasonableTime,
   scrapeURLWithPlaywright,
 } from "./playwright";
+import {
+  crawl4aiMaxReasonableTime,
+  scrapeURLWithCrawl4AI,
+} from "./crawl4ai";
 import { indexMaxReasonableTime, scrapeURLWithIndex } from "./index/index";
 import { useIndex } from "../../../services";
 import { hasFormatOfType } from "../../../lib/format-utils";
@@ -31,6 +35,7 @@ export type Engine =
   | "fire-engine;tlsclient"
   | "fire-engine;tlsclient;stealth"
   | "playwright"
+  | "crawl4ai"
   | "fetch"
   | "pdf"
   | "document"
@@ -43,6 +48,9 @@ const useFireEngine =
 const usePlaywright =
   config.PLAYWRIGHT_MICROSERVICE_URL !== "" &&
   config.PLAYWRIGHT_MICROSERVICE_URL !== undefined;
+const useCrawl4AI =
+  config.CRAWL4AI_MICROSERVICE_URL !== "" &&
+  config.CRAWL4AI_MICROSERVICE_URL !== undefined;
 
 const engines: Engine[] = [
   ...(useIndex ? ["index" as const, "index;documents" as const] : []),
@@ -59,6 +67,7 @@ const engines: Engine[] = [
       ]
     : []),
   ...(usePlaywright ? ["playwright" as const] : []),
+  ...(useCrawl4AI ? ["crawl4ai" as const] : []),
   "fetch",
   "pdf",
   "document",
@@ -153,6 +162,7 @@ const engineHandlers: {
   "fire-engine;tlsclient": scrapeURLWithFireEngineTLSClient,
   "fire-engine;tlsclient;stealth": scrapeURLWithFireEngineTLSClient,
   playwright: scrapeURLWithPlaywright,
+  crawl4ai: scrapeURLWithCrawl4AI,
   fetch: scrapeURLWithFetch,
   pdf: scrapePDF,
   document: scrapeDocument,
@@ -180,6 +190,7 @@ const engineMRTs: {
   "fire-engine;tlsclient;stealth": meta =>
     fireEngineMaxReasonableTime(meta, "tlsclient"),
   playwright: playwrightMaxReasonableTime,
+  crawl4ai: crawl4aiMaxReasonableTime,
   fetch: fetchMaxReasonableTime,
   pdf: pdfMaxReasonableTime,
   document: documentMaxReasonableTime,
@@ -365,6 +376,25 @@ const engineOptions: {
       disableAdblock: false,
     },
     quality: 20,
+  },
+  crawl4ai: {
+    features: {
+      actions: false,
+      waitFor: true,
+      screenshot: false,
+      "screenshot@fullScreen": false,
+      pdf: false,
+      document: false,
+      atsv: false,
+      location: false,
+      mobile: false,
+      skipTlsVerification: true,
+      useFastMode: false,
+      stealthProxy: false,
+      branding: false,
+      disableAdblock: false,
+    },
+    quality: 25, // Higher than playwright (20) to prefer crawl4ai with built-in markdown
   },
   "fire-engine;tlsclient": {
     features: {

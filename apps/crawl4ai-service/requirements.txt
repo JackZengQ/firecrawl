@@ -1,0 +1,15 @@
+# Web framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Crawl4AI - the main scraping engine
+crawl4ai>=0.4.0
+
+# Database
+asyncpg>=0.29.0
+
+# Utilities
+pydantic>=2.0.0
+
+# Playwright (installed by crawl4ai, but explicitly declaring)
+playwright>=1.40.0

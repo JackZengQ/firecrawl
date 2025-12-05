@@ -33,6 +33,7 @@ The engine forcing is configured via the `FORCED_ENGINE_DOMAINS` environment var
 - `fire-engine;playwright;stealth` - Playwright with stealth mode
 - `fire-engine;tlsclient;stealth` - TLS client with stealth mode
 - `playwright` - Direct Playwright integration
+- `crawl4ai` - Crawl4AI-based scraping with built-in markdown conversion
 - `fetch` - Simple HTTP requests
 - `pdf` - PDF document parsing
 - `document` - Office document handling
