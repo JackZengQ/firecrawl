@@ -15,7 +15,7 @@ import { shouldSendConcurrencyLimitNotification } from "./notification/notificat
 import { getACUCTeam } from "../controllers/auth";
 import { getJobFromGCS, removeJobFromGCS } from "../lib/gcs-jobs";
 import { Document } from "../controllers/v1/types";
-import { getCrawl } from "../lib/crawl-redis";
+import { getCrawl, StoredCrawl } from "../lib/crawl-redis";
 import { Logger } from "winston";
 import { ScrapeJobTimeoutError, TransportableError } from "../lib/error";
 import { deserializeTransportableError } from "../lib/error-serde";
@@ -23,6 +23,57 @@ import { abTestJob } from "./ab-test";
 import { NuQJob, scrapeQueue } from "./worker/nuq";
 import { serializeTraceContext } from "../lib/otel-tracer";
 import { isSelfHosted } from "../lib/deployment";
+
+/**
+ * Checks if a URL should be excluded based on excludePaths patterns from crawl options.
+ * @param url The URL to check
+ * @param sc The stored crawl containing excludePaths patterns
+ * @param regexOnFullURL If true, match patterns against full URL; otherwise match against pathname
+ * @returns true if the URL should be excluded
+ */
+function isUrlExcludedByExcludePaths(
+  url: string,
+  sc: StoredCrawl | null,
+  regexOnFullURL: boolean = false,
+): boolean {
+  if (!sc?.crawlerOptions?.excludes || sc.crawlerOptions.excludes.length === 0) {
+    return false;
+  }
+
+  const excludes = sc.crawlerOptions.excludes.filter(
+    (x: string) => x && x.trim().length > 0,
+  );
+
+  if (excludes.length === 0) {
+    return false;
+  }
+
+  let pathToCheck: string;
+  try {
+    const urlObj = new URL(url);
+    pathToCheck = regexOnFullURL ? url : urlObj.pathname;
+  } catch {
+    // If URL parsing fails, use the full URL for matching
+    pathToCheck = url;
+  }
+
+  for (const excludePattern of excludes) {
+    try {
+      const regex = new RegExp(excludePattern);
+      if (regex.test(pathToCheck)) {
+        _logger.debug(
+          `URL excluded by excludePaths: ${url} matched pattern ${excludePattern}`,
+        );
+        return true;
+      }
+    } catch {
+      // Invalid regex pattern, skip it
+      _logger.warn(`Invalid excludePaths regex pattern: ${excludePattern}`);
+    }
+  }
+
+  return false;
+}
 
 /**
  * Checks if a job is a crawl or batch scrape based on its options
@@ -216,6 +267,23 @@ async function addScrapeJobRaw(
   let concurrencyLimited: "yes" | "yes-crawl" | "no" | null = null;
   let currentActiveConcurrency = 0;
   let maxConcurrency = 0;
+
+  // Check excludePaths for crawl jobs
+  if (
+    webScraperOptions.crawl_id &&
+    webScraperOptions.mode === "single_urls" &&
+    "url" in webScraperOptions
+  ) {
+    const crawl = await getCrawl(webScraperOptions.crawl_id);
+    const regexOnFullURL = crawl?.crawlerOptions?.regexOnFullURL ?? false;
+    if (isUrlExcludedByExcludePaths(webScraperOptions.url, crawl, regexOnFullURL)) {
+      _logger.debug(
+        `Skipping job for excluded URL: ${webScraperOptions.url}`,
+        { crawlId: webScraperOptions.crawl_id, jobId },
+      );
+      return null;
+    }
+  }
 
   // Bypass concurrency limits for self-hosted deployments
   if (isSelfHosted()) {
@@ -419,6 +487,22 @@ export async function addScrapeJobs(
     // == Select jobs by crawl ID ==
     for (const [crawlID, crawlJobs] of jobsByCrawlID) {
       const crawl = await getCrawl(crawlID);
+
+      // Filter out jobs whose URLs match excludePaths patterns
+      const regexOnFullURL = crawl?.crawlerOptions?.regexOnFullURL ?? false;
+      const filteredCrawlJobs = crawlJobs.filter(job => {
+        if (job.data.mode === "single_urls" && "url" in job.data) {
+          if (isUrlExcludedByExcludePaths(job.data.url, crawl, regexOnFullURL)) {
+            _logger.debug(
+              `Filtering out excluded URL in addScrapeJobs: ${job.data.url}`,
+              { crawlId: crawlID, jobId: job.jobId },
+            );
+            return false;
+          }
+        }
+        return true;
+      });
+
       const concurrencyLimit = !crawl
         ? null
         : crawl.crawlerOptions?.delay === undefined &&
@@ -428,7 +512,7 @@ export async function addScrapeJobs(
 
       if (concurrencyLimit === null) {
         // All jobs may be in the CQ depending on the global team concurrency limit
-        jobsPotentiallyInCQ.push(...crawlJobs);
+        jobsPotentiallyInCQ.push(...filteredCrawlJobs);
       } else {
         const crawlConcurrency = (
           await getCrawlConcurrencyLimitActiveJobs(crawlID)
@@ -436,10 +520,10 @@ export async function addScrapeJobs(
         const freeSlots = Math.max(concurrencyLimit - crawlConcurrency, 0);
 
         // The first n jobs may be in the CQ depending on the global team concurrency limit
-        jobsPotentiallyInCQ.push(...crawlJobs.slice(0, freeSlots));
+        jobsPotentiallyInCQ.push(...filteredCrawlJobs.slice(0, freeSlots));
 
         // Every job after that must be in the CQ, as the crawl concurrency limit has been reached
-        jobsForcedToCQ.push(...crawlJobs.slice(freeSlots));
+        jobsForcedToCQ.push(...filteredCrawlJobs.slice(freeSlots));
       }
     }
 
