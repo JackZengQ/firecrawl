@@ -11,6 +11,7 @@ import {
   saveScrapeToGCS,
   saveSearchToGCS,
 } from "../../lib/gcs-jobs";
+import { isStorageConfigured } from "../../lib/s3-storage";
 import { hasFormatOfType } from "../../lib/format-utils";
 import type { Document, ScrapeOptions } from "../../controllers/v2/types";
 import type { CostTracking } from "../../lib/cost-tracking";
@@ -194,7 +195,7 @@ export async function logScrape(scrape: LoggedScrape, force: boolean = false) {
 
   if (
     scrape.doc &&
-    config.GCS_BUCKET_NAME &&
+    isStorageConfigured() &&
     !(scrape.skipNuq && scrape.zeroDataRetention)
   ) {
     await saveScrapeToGCS(scrape);

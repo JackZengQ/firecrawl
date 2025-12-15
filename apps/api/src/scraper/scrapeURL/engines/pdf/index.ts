@@ -34,6 +34,81 @@ type PDFProcessorResult = { html: string; markdown?: string };
 const MAX_FILE_SIZE = 19 * 1024 * 1024; // 19MB
 const MILLISECONDS_PER_PAGE = 150;
 
+/**
+ * Process PDF using local Marker service for high-quality markdown conversion.
+ * Marker is excellent for structured documents like restaurant menus.
+ */
+async function scrapePDFWithMarker(
+  meta: Meta,
+  tempFilePath: string,
+  maxPages?: number,
+): Promise<PDFProcessorResult> {
+  // Calculate timeout: use remaining scrape time, capped by configured Marker timeout
+  const scrapeTimeout = meta.abort.scrapeTimeout();
+  const configuredTimeout = config.MARKER_SERVICE_TIMEOUT_MS;
+  const markerTimeout = scrapeTimeout
+    ? Math.min(scrapeTimeout, configuredTimeout)
+    : configuredTimeout;
+
+  meta.logger.debug("Processing PDF document with Marker service", {
+    tempFilePath,
+    markerUrl: config.MARKER_SERVICE_URL,
+    timeoutMs: markerTimeout,
+  });
+
+  const startedAt = Date.now();
+
+  // Read the PDF file
+  const pdfBuffer = await readFile(tempFilePath);
+
+  // Build multipart form data
+  const formData = new FormData();
+  formData.append("file", new Blob([pdfBuffer], { type: "application/pdf" }), path.basename(tempFilePath) + ".pdf");
+  formData.append("output_format", "markdown");
+  formData.append("force_ocr", "true");  // Enable OCR to extract text from image-based PDFs
+
+  // Add page range if maxPages is specified
+  if (maxPages !== undefined) {
+    formData.append("page_range", `0-${maxPages - 1}`);
+  }
+
+  // Combine scrape abort signal with explicit timeout for Marker
+  const timeoutSignal = AbortSignal.timeout(markerTimeout);
+  const combinedSignal = AbortSignal.any([meta.abort.asSignal(), timeoutSignal]);
+
+  const response = await fetch(`${config.MARKER_SERVICE_URL}/marker/upload`, {
+    method: "POST",
+    body: formData,
+    signal: combinedSignal,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    const durationMs = Date.now() - startedAt;
+    meta.logger.warn("Marker service failed", {
+      status: response.status,
+      error: errorText,
+      durationMs,
+    });
+    throw new Error(`Marker service failed with status ${response.status}: ${errorText}`);
+  }
+
+  const result = await response.json() as { markdown?: string; output?: string };
+  const markdown = result.markdown || result.output || "";
+
+  const durationMs = Date.now() - startedAt;
+  meta.logger.info("Marker service completed", {
+    durationMs,
+    url: meta.rewrittenUrl ?? meta.url,
+    markdownLength: markdown.length,
+  });
+
+  return {
+    markdown,
+    html: await marked.parse(markdown, { async: true }),
+  };
+}
+
 async function scrapePDFWithRunPodMU(
   meta: Meta,
   tempFilePath: string,
@@ -357,8 +432,55 @@ export async function scrapePDF(meta: Meta): Promise<EngineScrapeResult> {
 
     const base64Content = (await readFile(tempFilePath)).toString("base64");
 
-    // First try RunPod MU if conditions are met
+    // First try local Marker service if configured (best for structured docs like menus)
+    if (config.MARKER_SERVICE_URL) {
+      const markerStartedAt = Date.now();
+      try {
+        result = await scrapePDFWithMarker(
+          {
+            ...meta,
+            logger: meta.logger.child({
+              method: "scrapePDF/scrapePDFWithMarker",
+            }),
+          },
+          tempFilePath,
+          maxPages,
+        );
+        const markerDurationMs = Date.now() - markerStartedAt;
+        meta.logger
+          .child({ method: "scrapePDF/Marker" })
+          .info("Marker service completed", {
+            durationMs: markerDurationMs,
+            url: meta.rewrittenUrl ?? meta.url,
+            pages: effectivePageCount,
+            success: true,
+          });
+      } catch (error) {
+        if (
+          error instanceof RemoveFeatureError ||
+          error instanceof AbortManagerThrownError
+        ) {
+          throw error;
+        }
+        meta.logger.warn(
+          "Marker service failed to parse PDF -- falling back to RunPod MU or parse-pdf",
+          { error },
+        );
+        const markerDurationMs = Date.now() - markerStartedAt;
+        meta.logger
+          .child({ method: "scrapePDF/Marker" })
+          .info("Marker service failed", {
+            durationMs: markerDurationMs,
+            url: meta.rewrittenUrl ?? meta.url,
+            pages: effectivePageCount,
+            success: false,
+          });
+      }
+    }
+
+    // Second, try RunPod MU if Marker failed or wasn't configured
     if (
+      !result &&
       base64Content.length < MAX_FILE_SIZE &&
       config.RUNPOD_MU_API_KEY &&
       config.RUNPOD_MU_POD_ID
@@ -409,7 +531,7 @@ export async function scrapePDF(meta: Meta): Promise<EngineScrapeResult> {
       }
     }
 
-    // If RunPod MU failed or wasn't attempted, use PdfParse
+    // If both Marker and RunPod MU failed or weren't attempted, use PdfParse as final fallback
     if (!result) {
       result = await scrapePDFWithParsePDF(
         {

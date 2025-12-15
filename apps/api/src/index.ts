@@ -36,6 +36,7 @@ import { nuqShutdown } from "./services/worker/nuq";
 import { getErrorContactMessage } from "./lib/deployment";
 import { initializeBlocklist } from "./scraper/WebScraper/utils/blocklist";
 import { initializeEngineForcing } from "./scraper/WebScraper/utils/engine-forcing";
+import { initS3Buckets } from "./lib/s3-storage";
 import responseTime from "response-time";
 
 const { createBullBoard } = require("@bull-board/api");
@@ -113,8 +114,9 @@ async function startServer(port = DEFAULT_PORT) {
   try {
     await initializeBlocklist();
     initializeEngineForcing();
+    await initS3Buckets();
   } catch (error) {
-    logger.error("Failed to initialize blocklist and engine forcing", {
+    logger.error("Failed to initialize blocklist, engine forcing, or S3 buckets", {
       error,
     });
     throw error;

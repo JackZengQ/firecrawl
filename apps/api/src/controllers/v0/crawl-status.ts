@@ -11,6 +11,7 @@ import { configDotenv } from "dotenv";
 import { toLegacyDocument } from "../v1/types";
 import type { DBScrape, PseudoJob } from "../v1/crawl-status";
 import { getJobFromGCS } from "../../lib/gcs-jobs";
+import { isStorageConfigured } from "../../lib/s3-storage";
 import { scrapeQueue, NuQJob } from "../../services/worker/nuq";
 import { includesFormat } from "../../lib/format-utils";
 configDotenv();
@@ -24,7 +25,7 @@ async function getJobs(
     config.USE_DB_AUTHENTICATION
       ? await supabaseGetScrapesByRequestId(crawlId)
       : [],
-    config.GCS_BUCKET_NAME
+    isStorageConfigured()
       ? (Promise.all(
           ids.map(async x => ({ id: x, job: await getJobFromGCS(x) })),
         ).then(x => x.filter(x => x.job)) as Promise<

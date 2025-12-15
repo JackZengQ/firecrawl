@@ -98,6 +98,15 @@ async function deriveMarkdownFromHTML(
     return document;
   }
 
+  // If markdown was already provided by the engine (e.g., crawl4ai with JSON extraction),
+  // preserve it instead of re-parsing from HTML
+  if (document.markdown && document.markdown.trim().length > 0) {
+    meta.logger.debug("Preserving engine-provided markdown", {
+      markdownLength: document.markdown.length,
+    });
+    return document;
+  }
+
   document.markdown = await parseMarkdown(document.html);
 
   if (

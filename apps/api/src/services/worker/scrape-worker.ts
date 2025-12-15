@@ -74,6 +74,7 @@ import {
 import { ScrapeUrlResponse } from "../../scraper/scrapeURL";
 import { logScrape } from "../logging/log_job";
 import { FeatureFlag } from "../../scraper/scrapeURL/engines";
+import { isStorageConfigured } from "../../lib/s3-storage";
 
 configDotenv();
 
@@ -1164,7 +1165,7 @@ async function processJobWithTracing(job: NuQJob<ScrapeJobData>, logger: any) {
             }
 
             try {
-              if (config.GCS_BUCKET_NAME && !job.data.skipNuq) {
+              if (isStorageConfigured() && !job.data.skipNuq) {
                 logger.debug("Job succeeded -- putting null in Redis");
                 return null;
               } else {

@@ -41,7 +41,7 @@ COPY . .
 
 # Install dependencies (cargo cache disabled to fix flate2 dependency conflict)
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --frozen-lockfile
+    pnpm install --no-frozen-lockfile
 
 # Build the application
 RUN pnpm run build

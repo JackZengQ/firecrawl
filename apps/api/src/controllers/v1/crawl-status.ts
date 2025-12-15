@@ -22,6 +22,7 @@ import { configDotenv } from "dotenv";
 import { logger } from "../../lib/logger";
 import { supabase_rr_service, supabase_service } from "../../services/supabase";
 import { getJobFromGCS } from "../../lib/gcs-jobs";
+import { isStorageConfigured } from "../../lib/s3-storage";
 import {
   scrapeQueue,
   NuQJob,
@@ -58,7 +59,7 @@ export async function getJob(id: string): Promise<PseudoJob<any> | null> {
     (config.USE_DB_AUTHENTICATION
       ? supabaseGetScrapeById(id)
       : null) as Promise<DBScrape | null>,
-    (config.GCS_BUCKET_NAME ? getJobFromGCS(id) : null) as Promise<any | null>,
+    (isStorageConfigured() ? getJobFromGCS(id) : null) as Promise<any | null>,
   ]);
 
   if (!nuqJob && !dbScrape) return null;
@@ -69,7 +70,7 @@ export async function getJob(id: string): Promise<PseudoJob<any> | null> {
 
   const data = gcsJob ?? nuqJob?.returnvalue;
   if (gcsJob === null && data) {
-    logger.warn("GCS Job not found", {
+    logger.warn("Storage job not found", {
       jobId: id,
     });
   }
@@ -98,7 +99,7 @@ export async function getJobs(ids: string[]): Promise<PseudoJob<any>[]> {
   const [nuqJobs, dbScrapes, gcsJobs] = await Promise.all([
     scrapeQueue.getJobs(ids) as Promise<NuQJob<ScrapeJobSingleUrls>[]>,
     config.USE_DB_AUTHENTICATION ? supabaseGetScrapesById(ids) : [],
-    config.GCS_BUCKET_NAME
+    isStorageConfigured()
       ? (Promise.all(
           ids.map(async x => ({ id: x, job: await getJobFromGCS(x) })),
         ).then(x => x.filter(x => x.job)) as Promise<

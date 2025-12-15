@@ -61,12 +61,22 @@ const configSchema = z.object({
   INDEX_SUPABASE_SERVICE_TOKEN: z.string().optional(),
   SEARCH_INDEX_SUPABASE_URL: z.string().optional(),
 
-  // Google Cloud Storage
+  // Google Cloud Storage (legacy - use S3 config instead for new deployments)
   GCS_BUCKET_NAME: z.string().optional(),
   GCS_CREDENTIALS: z.string().optional(),
   GCS_FIRE_ENGINE_BUCKET_NAME: z.string().optional(),
   GCS_INDEX_BUCKET_NAME: z.string().optional(),
   GCS_MEDIA_BUCKET_NAME: z.string().optional(),
+
+  // S3-Compatible Storage (works with AWS S3, Supabase Storage, MinIO, GCS, etc.)
+  S3_ENDPOINT: z.string().optional(), // e.g., "http://localhost:54321/storage/v1/s3" for Supabase
+  S3_ACCESS_KEY: z.string().optional(),
+  S3_SECRET_KEY: z.string().optional(),
+  S3_REGION: z.string().default("us-east-1"),
+  S3_BUCKET_NAME: z.string().optional(), // Main bucket for jobs
+  S3_INDEX_BUCKET_NAME: z.string().optional(), // Bucket for index data
+  S3_MEDIA_BUCKET_NAME: z.string().optional(), // Bucket for media (screenshots, etc.)
+  S3_FORCE_PATH_STYLE: z.stringbool().default(true), // Required for most S3-compatible services
 
   // Fire Engine
   FIRE_ENGINE_BETA_URL: z.string().optional(),
@@ -117,6 +127,8 @@ const configSchema = z.object({
   SMART_SCRAPE_API_URL: z.string().optional(),
 
   // PDF Processing
+  MARKER_SERVICE_URL: z.string().optional(), // Local Marker service for PDF-to-markdown conversion
+  MARKER_SERVICE_TIMEOUT_MS: z.coerce.number().default(300000), // Marker timeout in ms (default 5 min)
   PDF_MU_V2_BASE_URL: z.string().optional(),
   PDF_MU_V2_API_KEY: z.string().optional(),
   PDF_MU_V2_EXPERIMENT: z.string().optional(),

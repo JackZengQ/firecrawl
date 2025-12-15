@@ -11,6 +11,12 @@ import { PdfMetadata } from "@mendable/firecrawl-rs";
 import { storage } from "../lib/gcs-jobs";
 import { withSpan, setSpanAttributes } from "../lib/otel-tracer";
 import { config } from "../config";
+import {
+  isS3Configured,
+  getIndexBucket,
+  s3SaveWithRetry,
+  s3Get,
+} from "../lib/s3-storage";
 configDotenv();
 
 // SupabaseService class initializes the Supabase client conditionally based on environment variables.
@@ -62,6 +68,16 @@ const credentials = config.GCS_CREDENTIALS
   ? JSON.parse(atob(config.GCS_CREDENTIALS))
   : undefined;
 
+// Helper to determine which storage backend to use for index
+function useS3ForIndex(): boolean {
+  return isS3Configured() && !!config.S3_INDEX_BUCKET_NAME;
+}
+
+// Helper to get index bucket name
+function getIndexBucketName(): string | undefined {
+  return getIndexBucket();
+}
+
 export async function getIndexFromGCS(
   url: string,
   logger?: Logger,
@@ -73,63 +89,77 @@ export async function getIndexFromGCS(
         "index.url": url,
       });
 
-      if (!config.GCS_INDEX_BUCKET_NAME) {
+      const bucketName = getIndexBucketName();
+      if (!bucketName) {
         setSpanAttributes(span, { "gcs.index_bucket_configured": false });
         return null;
       }
 
-      const bucket = storage.bucket(config.GCS_INDEX_BUCKET_NAME);
-      const blob = bucket.file(`${url}`);
-      const [blobContent] = await blob.download();
-      const parsed = JSON.parse(blobContent.toString());
-
-      try {
-        if (typeof parsed.screenshot === "string") {
-          const screenshotUrl = new URL(parsed.screenshot);
-          let expiresAt =
-            parseInt(screenshotUrl.searchParams.get("Expires") ?? "0", 10) *
-            1000;
-          if (expiresAt === 0) {
-            expiresAt =
-              new Date(
-                screenshotUrl.searchParams.get("X-Goog-Date") ??
-                  "1970-01-01T00:00:00Z",
-              ).getTime() +
-              parseInt(
-                screenshotUrl.searchParams.get("X-Goog-Expires") ?? "0",
-                10,
-              ) *
-                1000;
-          }
-          if (
-            screenshotUrl.hostname === "storage.googleapis.com" &&
-            expiresAt < Date.now()
-          ) {
-            logger?.info("Re-signing screenshot URL");
-            const [url] = await storage
-              .bucket(config.GCS_MEDIA_BUCKET_NAME!)
-              .file(decodeURIComponent(screenshotUrl.pathname.split("/")[2]))
-              .getSignedUrl({
-                action: "read",
-                expires: Date.now() + 1000 * 60 * 60 * 24 * 7, // 7 days
-              });
-            parsed.screenshot = url;
-
-            // Update the blob
-            await blob.save(JSON.stringify(parsed), {
-              contentType: "application/json",
-            });
-          }
+      if (useS3ForIndex()) {
+        // Use S3-compatible storage
+        const content = await s3Get(bucketName, url);
+        if (!content) {
+          return null;
         }
-      } catch (error) {
-        logger?.warn("Error re-signing screenshot URL", {
-          error,
-          url,
-        });
-      }
+        const parsed = JSON.parse(content);
+        setSpanAttributes(span, { "storage.backend": "s3", "index.document_found": true });
+        return parsed;
+      } else {
+        // Use GCS
+        const bucket = storage.bucket(bucketName);
+        const blob = bucket.file(`${url}`);
+        const [blobContent] = await blob.download();
+        const parsed = JSON.parse(blobContent.toString());
 
-      setSpanAttributes(span, { "index.document_found": true });
-      return parsed;
+        // GCS-specific: Re-sign expired screenshot URLs
+        try {
+          if (typeof parsed.screenshot === "string") {
+            const screenshotUrl = new URL(parsed.screenshot);
+            let expiresAt =
+              parseInt(screenshotUrl.searchParams.get("Expires") ?? "0", 10) *
+              1000;
+            if (expiresAt === 0) {
+              expiresAt =
+                new Date(
+                  screenshotUrl.searchParams.get("X-Goog-Date") ??
+                    "1970-01-01T00:00:00Z",
+                ).getTime() +
+                parseInt(
+                  screenshotUrl.searchParams.get("X-Goog-Expires") ?? "0",
+                  10,
+                ) *
+                  1000;
+            }
+            if (
+              screenshotUrl.hostname === "storage.googleapis.com" &&
+              expiresAt < Date.now()
+            ) {
+              logger?.info("Re-signing screenshot URL");
+              const [url] = await storage
+                .bucket(config.GCS_MEDIA_BUCKET_NAME!)
+                .file(decodeURIComponent(screenshotUrl.pathname.split("/")[2]))
+                .getSignedUrl({
+                  action: "read",
+                  expires: Date.now() + 1000 * 60 * 60 * 24 * 7, // 7 days
+                });
+              parsed.screenshot = url;
+
+              // Update the blob
+              await blob.save(JSON.stringify(parsed), {
+                contentType: "application/json",
+              });
+            }
+          }
+        } catch (error) {
+          logger?.warn("Error re-signing screenshot URL", {
+            error,
+            url,
+          });
+        }
+
+        setSpanAttributes(span, { "storage.backend": "gcs", "index.document_found": true });
+        return parsed;
+      }
     });
   } catch (error) {
     if (
@@ -140,7 +170,7 @@ export async function getIndexFromGCS(
       return null;
     }
 
-    (logger ?? _logger).error(`Error getting Index document from GCS`, {
+    (logger ?? _logger).error(`Error getting Index document from storage`, {
       error,
       url,
     });
@@ -170,30 +200,41 @@ export async function saveIndexToGCS(
       "index.has_error": !!doc.error,
     });
 
-    if (!config.GCS_INDEX_BUCKET_NAME) {
+    const bucketName = getIndexBucketName();
+    if (!bucketName) {
       setSpanAttributes(span, { "gcs.index_bucket_configured": false });
       return;
     }
 
-    const bucket = storage.bucket(config.GCS_INDEX_BUCKET_NAME);
-    const blob = bucket.file(`${id}.json`);
+    const key = `${id}.json`;
+    const content = JSON.stringify(doc);
 
-    for (let i = 0; i < 3; i++) {
-      try {
-        await blob.save(JSON.stringify(doc), {
-          contentType: "application/json",
-        });
-        setSpanAttributes(span, { "index.save_successful": true });
-        break;
-      } catch (error) {
-        if (i === 2) {
-          throw error;
-        } else {
-          _logger.error(`Error saving index document to GCS, retrying`, {
-            error,
-            indexId: id,
-            i,
+    if (useS3ForIndex()) {
+      // Use S3-compatible storage
+      await s3SaveWithRetry(bucketName, key, content, "application/json");
+      setSpanAttributes(span, { "storage.backend": "s3", "index.save_successful": true });
+    } else {
+      // Use GCS
+      const bucket = storage.bucket(bucketName);
+      const blob = bucket.file(key);
+
+      for (let i = 0; i < 3; i++) {
+        try {
+          await blob.save(content, {
+            contentType: "application/json",
           });
+          setSpanAttributes(span, { "storage.backend": "gcs", "index.save_successful": true });
+          break;
+        } catch (error) {
+          if (i === 2) {
+            throw error;
+          } else {
+            _logger.error(`Error saving index document to GCS, retrying`, {
+              error,
+              indexId: id,
+              i,
+            });
+          }
         }
       }
     }
