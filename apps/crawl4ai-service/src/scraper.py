@@ -177,12 +177,16 @@ class Crawl4AIScraper:
                 proxy_config["password"] = PROXY_PASSWORD
 
         # Browser configuration
+        # Enable stealth mode to bypass basic bot detection (Duda, etc.)
         browser_config = BrowserConfig(
             headless=HEADLESS,
             verbose=False,
             proxy_config=proxy_config,
             ignore_https_errors=ignore_https_errors,
-            # Chrome args for Docker compatibility
+            # Enable stealth mode - uses playwright-stealth to modify browser fingerprints
+            # Required for sites with bot detection like Duda-built websites
+            enable_stealth=True,
+            # Chrome args for Docker compatibility + anti-detection
             extra_args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
@@ -191,6 +195,8 @@ class Crawl4AIScraper:
                 "--no-first-run",
                 "--no-zygote",
                 "--disable-gpu",
+                # Anti-detection args
+                "--disable-blink-features=AutomationControlled",
             ],
         )
 

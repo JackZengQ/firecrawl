@@ -137,6 +137,8 @@ export async function batchScrapeController(
             ? true
             : false,
           zeroDataRetention,
+          // Support engine selection from scrapeOptions (crawl4ai, playwright, fetch)
+          ...(req.body.engine ? { forceEngine: req.body.engine } : {}),
         }, // NOTE: smart wait disabled for batch scrapes to ensure contentful scrape, speed does not matter
         team_id: req.auth.team_id,
         createdAt: Date.now(),

@@ -535,6 +535,7 @@ const baseScrapeOptions = z.strictObject({
   waitFor: z.int().nonnegative().finite().max(60000).prefault(0),
   mobile: z.boolean().prefault(false),
   parsers: parsersSchema.optional(),
+  forceOcr: z.boolean().prefault(false),
   actions: actionsSchema.optional(),
 
   location: locationSchema,
@@ -552,6 +553,11 @@ const baseScrapeOptions = z.strictObject({
   __searchPreviewToken: z.string().optional(),
   __experimental_omce: z.boolean().prefault(false).optional(),
   __experimental_omceDomain: z.string().optional(),
+  // Engine selection - forces use of a specific scraping engine
+  engine: z.enum(["crawl4ai", "playwright", "fetch"]).optional(),
+  // Load all content by scrolling and clicking "Load More" buttons (only works with crawl4ai engine)
+  loadAllContent: z.boolean().optional(),
+  loadAllContentTimeout: z.int().positive().optional(),
 });
 
 type ScrapeOptionsBase = z.infer<typeof baseScrapeOptions>;

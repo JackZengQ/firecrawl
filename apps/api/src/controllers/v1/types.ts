@@ -483,6 +483,7 @@ const baseScrapeOptions = z.strictObject({
     .optional(),
   mobile: z.boolean().prefault(false),
   parsePDF: z.boolean().prefault(true),
+  forceOcr: z.boolean().prefault(false),
   actions: actionsSchema.optional(),
   // New
   location: locationSchema,

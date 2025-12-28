@@ -188,6 +188,8 @@ export async function crawlController(
       teamId: req.auth.team_id,
       saveScrapeResultToGCS: config.GCS_FIRE_ENGINE_BUCKET_NAME ? true : false,
       zeroDataRetention,
+      // Support engine selection from scrapeOptions (crawl4ai, playwright, fetch)
+      ...(scrapeOptions.engine ? { forceEngine: scrapeOptions.engine } : {}),
     },
     team_id: req.auth.team_id,
     createdAt: Date.now(),

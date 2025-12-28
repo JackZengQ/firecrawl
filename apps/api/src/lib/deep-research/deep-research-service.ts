@@ -142,6 +142,7 @@ export async function performDeepResearch(options: DeepResearchServiceOptions) {
               waitFor: 0,
               mobile: false,
               parsePDF: false,
+              forceOcr: false,
               useMock: "none",
               skipTlsVerification: false,
               removeBase64Images: false,

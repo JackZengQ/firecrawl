@@ -207,6 +207,8 @@ export async function scrapeController(
                       bypassBilling: isDirectToBullMQ,
                       zeroDataRetention,
                       teamFlags: req.acuc?.flags ?? null,
+                      // Support engine selection from scrapeOptions (crawl4ai, playwright, fetch)
+                      ...(req.body.engine ? { forceEngine: req.body.engine } : {}),
                     },
                     skipNuq: true,
                     origin,

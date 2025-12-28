@@ -65,7 +65,11 @@ async function scrapePDFWithMarker(
   const formData = new FormData();
   formData.append("file", new Blob([pdfBuffer], { type: "application/pdf" }), path.basename(tempFilePath) + ".pdf");
   formData.append("output_format", "markdown");
-  formData.append("force_ocr", "true");  // Enable OCR to extract text from image-based PDFs
+
+  // Enable OCR if requested (for image-based PDFs)
+  if (meta.options.forceOcr) {
+    formData.append("force_ocr", "true");
+  }
 
   // Add page range if maxPages is specified
   if (maxPages !== undefined) {

@@ -63,6 +63,8 @@ class ScrapeRequest(BaseModel):
     skip_tls_verification: bool = False
     wait_for_selector: Optional[str] = None
     extract_markdown: bool = True
+    load_all_content: bool = False
+    load_all_content_timeout: int = 30000
 
 
 class ScrapeResponse(BaseModel):
@@ -407,7 +409,9 @@ async def scrape_url(request: ScrapeRequest):
             wait_after_load=request.wait_after_load,
             headers=request.headers,
             skip_tls_verification=request.skip_tls_verification,
-            wait_for_selector=request.wait_for_selector
+            wait_for_selector=request.wait_for_selector,
+            load_all_content=request.load_all_content,
+            load_all_content_timeout=request.load_all_content_timeout
         )
 
         page_error = None

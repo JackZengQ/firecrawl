@@ -23,6 +23,9 @@ export async function scrapeURLWithCrawl4AI(
       headers: meta.options.headers,
       skip_tls_verification: meta.options.skipTlsVerification ?? false,
       extract_markdown: true,
+      // Enable full page scanning with scroll for lazy-loaded content
+      load_all_content: (meta.options as any).loadAllContent ?? false,
+      load_all_content_timeout: (meta.options as any).loadAllContentTimeout ?? 30000,
     },
     method: "POST",
     logger: meta.logger.child("scrapeURLWithCrawl4AI/robustFetch"),
