@@ -521,6 +521,15 @@ const baseScrapeOptions = z.strictObject({
   __searchPreviewToken: z.string().optional(),
   __experimental_omce: z.boolean().prefault(false).optional(),
   __experimental_omceDomain: z.string().optional(),
+  // Engine selection - forces use of a specific scraping engine
+  engine: z.enum(["crawl4ai", "playwright", "fetch"]).optional(),
+  // Load all content by scrolling and clicking "Load More" buttons (only works with crawl4ai engine)
+  loadAllContent: z.boolean().optional(),
+  loadAllContentTimeout: z.int().positive().optional(),
+  // Use undetected Chrome to bypass aggressive bot detection (only works with crawl4ai engine)
+  undetectedMode: z.boolean().optional(),
+  // Custom JavaScript to execute on the page (only works with crawl4ai engine)
+  jsCode: z.string().optional(),
 });
 
 const fire1RefineOpts = {
