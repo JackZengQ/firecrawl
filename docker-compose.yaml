@@ -18,6 +18,7 @@ x-common-env: &common-env
   REDIS_RATE_LIMIT_URL: ${REDIS_URL:-redis://redis:6379}
   PLAYWRIGHT_MICROSERVICE_URL: ${PLAYWRIGHT_MICROSERVICE_URL:-http://playwright-service:3000/scrape}
   CRAWL4AI_MICROSERVICE_URL: ${CRAWL4AI_MICROSERVICE_URL:-http://crawl4ai-service:3001/scrape}
+  HTML_TO_MARKDOWN_SERVICE_URL: ${HTML_TO_MARKDOWN_SERVICE_URL:-http://html-to-markdown:8080}
   MARKER_SERVICE_URL: ${MARKER_SERVICE_URL:-http://host.docker.internal:8008}
   NUQ_DATABASE_URL: postgres://postgres:postgres@nuq-postgres:5432/postgres
   USE_DB_AUTHENTICATION: ${USE_DB_AUTHENTICATION}
@@ -91,6 +92,17 @@ services:
     depends_on:
       - nuq-postgres
 
+  html-to-markdown:
+    build: apps/go-html-to-md-service
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
   api:
     <<: *common-service
     environment:
@@ -103,6 +115,7 @@ services:
     depends_on:
       - redis
       - playwright-service
+      - html-to-markdown
       - minio
     ports:
       - "${PORT:-3002}:${INTERNAL_PORT:-3002}"
