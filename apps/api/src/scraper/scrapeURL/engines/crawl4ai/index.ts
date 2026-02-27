@@ -26,6 +26,10 @@ export async function scrapeURLWithCrawl4AI(
       // Enable full page scanning with scroll for lazy-loaded content
       load_all_content: (meta.options as any).loadAllContent ?? false,
       load_all_content_timeout: (meta.options as any).loadAllContentTimeout ?? 30000,
+      // Undetected Chrome mode for aggressive bot detection bypass
+      undetected_mode: (meta.options as any).undetectedMode ?? false,
+      // Custom JS to execute on the page
+      js_code: (meta.options as any).jsCode ?? null,
     },
     method: "POST",
     logger: meta.logger.child("scrapeURLWithCrawl4AI/robustFetch"),

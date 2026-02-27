@@ -65,6 +65,8 @@ class ScrapeRequest(BaseModel):
     extract_markdown: bool = True
     load_all_content: bool = False
     load_all_content_timeout: int = 30000
+    undetected_mode: bool = False
+    js_code: Optional[str] = None
 
 
 class ScrapeResponse(BaseModel):
@@ -206,6 +208,8 @@ async def process_job(job: dict) -> dict:
     headers = scrape_options.get("headers", {})
     skip_tls = scrape_options.get("skipTlsVerification", False)
     wait_for_selector = scrape_options.get("waitForSelector")
+    undetected_mode = scrape_options.get("undetectedMode", False)
+    js_code = scrape_options.get("jsCode")
 
     logger.info(f"Processing job {job['id']} for URL: {url}")
 
@@ -216,7 +220,9 @@ async def process_job(job: dict) -> dict:
             wait_after_load=wait_for,
             headers=headers,
             skip_tls_verification=skip_tls,
-            wait_for_selector=wait_for_selector
+            wait_for_selector=wait_for_selector,
+            undetected_mode=undetected_mode,
+            js_code_extra=js_code,
         )
 
         return {
@@ -411,7 +417,9 @@ async def scrape_url(request: ScrapeRequest):
             skip_tls_verification=request.skip_tls_verification,
             wait_for_selector=request.wait_for_selector,
             load_all_content=request.load_all_content,
-            load_all_content_timeout=request.load_all_content_timeout
+            load_all_content_timeout=request.load_all_content_timeout,
+            undetected_mode=request.undetected_mode,
+            js_code_extra=request.js_code,
         )
 
         page_error = None

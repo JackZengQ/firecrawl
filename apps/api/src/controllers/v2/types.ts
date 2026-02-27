@@ -558,6 +558,10 @@ const baseScrapeOptions = z.strictObject({
   // Load all content by scrolling and clicking "Load More" buttons (only works with crawl4ai engine)
   loadAllContent: z.boolean().optional(),
   loadAllContentTimeout: z.int().positive().optional(),
+  // Use undetected Chrome to bypass aggressive bot detection (only works with crawl4ai engine)
+  undetectedMode: z.boolean().optional(),
+  // Custom JavaScript to execute on the page (only works with crawl4ai engine)
+  jsCode: z.string().optional(),
 });
 
 type ScrapeOptionsBase = z.infer<typeof baseScrapeOptions>;

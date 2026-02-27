@@ -158,6 +158,7 @@ class Crawl4AIScraper:
     def __init__(self, max_concurrent: int = 5):
         self.max_concurrent = max_concurrent
         self.crawler: Optional[AsyncWebCrawler] = None
+        self.undetected_crawler: Optional[AsyncWebCrawler] = None
         self.semaphore = asyncio.Semaphore(max_concurrent)
         self._initialized = False
 
@@ -176,37 +177,55 @@ class Crawl4AIScraper:
                 proxy_config["username"] = PROXY_USERNAME
                 proxy_config["password"] = PROXY_PASSWORD
 
-        # Browser configuration
-        # Enable stealth mode to bypass basic bot detection (Duda, etc.)
+        # Common Chrome args for Docker compatibility + anti-detection
+        common_extra_args = [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-accelerated-2d-canvas",
+            "--no-first-run",
+            "--no-zygote",
+            "--disable-gpu",
+            # Anti-detection args
+            "--disable-blink-features=AutomationControlled",
+        ]
+
+        # Standard browser configuration with stealth mode
         browser_config = BrowserConfig(
             headless=HEADLESS,
             verbose=False,
             proxy_config=proxy_config,
             ignore_https_errors=ignore_https_errors,
-            # Enable stealth mode - uses playwright-stealth to modify browser fingerprints
-            # Required for sites with bot detection like Duda-built websites
             enable_stealth=True,
-            # Chrome args for Docker compatibility + anti-detection
-            extra_args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-accelerated-2d-canvas",
-                "--no-first-run",
-                "--no-zygote",
-                "--disable-gpu",
-                # Anti-detection args
-                "--disable-blink-features=AutomationControlled",
-            ],
+            extra_args=common_extra_args,
         )
 
         self.crawler = AsyncWebCrawler(config=browser_config)
         await self.crawler.start()
+
+        # Undetected browser configuration for sites with aggressive bot detection
+        # (Square.site, ToastTab, Wix, etc.)
+        undetected_config = BrowserConfig(
+            headless=HEADLESS,
+            verbose=False,
+            proxy_config=proxy_config,
+            ignore_https_errors=ignore_https_errors,
+            enable_stealth=True,
+            browser_mode="undetected",
+            extra_args=common_extra_args,
+        )
+
+        self.undetected_crawler = AsyncWebCrawler(config=undetected_config)
+        await self.undetected_crawler.start()
+
         self._initialized = True
-        logger.info("Crawl4AI scraper initialized")
+        logger.info("Crawl4AI scraper initialized (standard + undetected)")
 
     async def close(self):
         """Close the crawler and release resources."""
+        if self.undetected_crawler:
+            await self.undetected_crawler.close()
+            self.undetected_crawler = None
         if self.crawler:
             await self.crawler.close()
             self.crawler = None
@@ -223,6 +242,8 @@ class Crawl4AIScraper:
         wait_for_selector: Optional[str] = None,
         load_all_content: bool = False,
         load_all_content_timeout: int = 30000,
+        undetected_mode: bool = False,
+        js_code_extra: Optional[str] = None,
     ) -> dict:
         """
         Scrape a URL and return HTML content and markdown.
@@ -236,6 +257,8 @@ class Crawl4AIScraper:
             wait_for_selector: CSS selector to wait for before scraping
             load_all_content: If True, scroll through page and click "Load More" buttons
             load_all_content_timeout: Max time in ms for loading all content
+            undetected_mode: If True, use undetected Chrome to bypass aggressive bot detection
+            js_code_extra: Custom JavaScript to execute after load-more JS
 
         Returns:
             dict with html, markdown, status_code, and content_type
@@ -246,6 +269,8 @@ class Crawl4AIScraper:
         async with self.semaphore:
             try:
                 # JavaScript to click all "Load More" type buttons
+                # ALWAYS enable this for restaurant sites
+                load_more_timeout = load_all_content_timeout if load_all_content else 20000
                 load_more_js = """
                 (async () => {
                     const timeout = %d;
@@ -300,7 +325,16 @@ class Crawl4AIScraper:
                         await new Promise(r => setTimeout(r, 500));
                     }
                 })();
-                """ % load_all_content_timeout if load_all_content else None
+                """ % load_more_timeout
+
+                # Append custom JS if provided
+                if js_code_extra:
+                    load_more_js += "\n" + js_code_extra
+
+                # Select crawler based on undetected mode
+                active_crawler = self.undetected_crawler if undetected_mode else self.crawler
+                if undetected_mode:
+                    logger.info(f"Using UNDETECTED browser mode for {url}")
 
                 # Build crawler run configuration
                 crawler_config = CrawlerRunConfig(
@@ -309,7 +343,8 @@ class Crawl4AIScraper:
 
                     # Wait settings
                     page_timeout=timeout + (load_all_content_timeout if load_all_content else 0),
-                    delay_before_return_html=wait_after_load / 1000.0 if wait_after_load > 0 else 0,
+                    # ALWAYS wait 5 seconds after scrolling for lazy-loaded content
+                    delay_before_return_html=max(5.0, wait_after_load / 1000.0 if wait_after_load > 0 else 0),
 
                     # Selector wait
                     wait_for=wait_for_selector if wait_for_selector else None,
@@ -319,8 +354,9 @@ class Crawl4AIScraper:
                     process_iframes=True,
 
                     # Full page scanning for lazy-loaded content
-                    scan_full_page=load_all_content,
-                    scroll_delay=0.5 if load_all_content else 0.0,
+                    # ALWAYS enable for restaurant sites with lazy-loaded menus
+                    scan_full_page=True,
+                    scroll_delay=0.5,
 
                     # JavaScript to execute (click Load More buttons)
                     js_code=load_more_js,
@@ -348,7 +384,7 @@ class Crawl4AIScraper:
                     logger.info(f"Scraping URL with load_all_content: {url} (timeout: {load_all_content_timeout}ms)")
                 else:
                     logger.info(f"Scraping URL: {url}")
-                result = await self.crawler.arun(url=url, config=crawler_config)
+                result = await active_crawler.arun(url=url, config=crawler_config)
 
                 if not result.success:
                     logger.warning(f"Scrape failed for {url}: {result.error_message}")
